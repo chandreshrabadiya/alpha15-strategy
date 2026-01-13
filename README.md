@@ -8,76 +8,78 @@ This system monitors the **second 15-minute candle** of the trading day to detec
 
 ## ⚙️ Features
 
-- ✅ Works with **Angel One SmartAPI**
+- ✅ Works with **OpenAlgo** (Broker Agnostic)
 - ✅ Analyzes real-time **15-minute candles**
 - ✅ Applies **ATR** and **POC (Point of Control)** logic
 - ✅ Implements **TPO (Time-Price-Opportunity)** market profiling concepts
 - ✅ Sends actionable alerts via **Telegram**
-- ✅ External config via `credentials.txt` and `symbols.txt` (not exposed)
+- ✅ Automated symbol fetching via `masterlist.py`
+- ✅ External config via `credentials.txt` (gitignored)
 
 ---
 
 ## 🧠 Strategy Logic
 
 This bot internally uses:
-- Volume-based **POC** identification
+- Volume-based **POC** identification using TPO Market Profiling
 - Volatility filters using **ATR (Average True Range)**
-- **TPO profiling** for price activity clustering
-- Realtime LTP comparisons to high/low ranges for **breakout confirmation**
+- Real-time breakout confirmation against the first 15-minute candle range
 
 These concepts are inspired by institutional market profiling and price action frameworks.
 
-📩 Want to know the inner workings or research the logic?  
-**Email me** at: `tobiramalovesmadara@gmail.com` for further details and discussion.
-
+---
 
 ## 🛠️ Setup Instructions
 
-1. **Install Dependencies**
+### 1. Environment Setup
 
-   Run the following command to install required packages:
+It is recommended to use a virtual environment to keep dependencies isolated.
 
-   ```bash
-   pip install -r requriments.txt
-Prepare credentials.txt
+**Windows (PowerShell):**
+```powershell
+# Create virtual environment
+python -m venv venv
 
-2. Create a file named credentials.txt in the root folder and fill in your details:
+# Activate virtual environment
+.\venv\Scripts\Activate
 
+# Install dependencies
+pip install -r requirements.txt
+```
 
-API_KEY=your_angel_api_key
-CLIENT_CODE=your_client_code
-PIN=your_pin
-TOTP_SECRET=your_totp_secret
+### 2. Prepare `credentials.txt`
+
+Create a file named `credentials.txt` in the root folder (or use `credentials.template.txt` as a base) and fill in your details:
+
+```text
+OPENALGO_API_KEY=your_openalgo_api_key
+OPENALGO_HOST=your_openalgo_host_url
 bot_token=your_telegram_bot_token
 chat_id=your_telegram_chat_id
-csv_path=absolute_path_to_futures_masterlist.csv
+```
 
-3. masterlist.py
-Inside masterlist.py, you'll find a section where you can customize your preferred stock list (e.g., ["HDFCBANK", "RELIANCE", "INFY"]).
+### 3. Fetch Symbols (`masterlist.py`)
 
-The script will download and create a file like futures_masterlist.csv.
+Run the masterlist script to generate the `symbols.txt` file for the current expiry month.
 
-4.Populate symbols.txt
+```powershell
+# Generate symbols for January expiry
+python masterlist.py --month JAN
+```
 
-Open the generated futures_masterlist.csv.
+### 4. Run the Bot (`alpha15.py`)
 
-Copy the exact symbol names (e.g., RELIANCE31JUL25FUT) of the futures you want to track.
+Run the bot during market hours. Ensure you specify the correct expiry day.
 
-Paste each symbol on a new line in symbols.txt.
+```powershell
+# Run the bot for expiry day 27
+python alpha15.py --expiry-day 27
 
-Example:
+# Run in test mode (bypasses time restrictions)
+python alpha15.py --expiry-day 27 --test-mode
+```
 
-RELIANCE31JUL25FUT
-INFY31JUL25FUT
-HDFCBANK31JUL25FUT
-
-5.Run the Bot
-
-Once setup is complete and market is open:
-
-
-python main.py
-
+---
 
 ## 📢 Disclaimer
 
