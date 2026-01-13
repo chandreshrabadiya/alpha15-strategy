@@ -284,7 +284,7 @@ def check_trading_conditions(symbol, tick_size, expiry_day, exchange="NFO", holi
     # Ensure we're in the monitoring window (9:30 AM - 9:45 AM)
     if not (current_time.hour == 9 and 30 <= current_time.minute <= 45):
         logger.info(f"Outside monitoring window for {symbol}")
-        #return None
+        return None
 
     # Get POC
     poc = calculate_poc(symbol, tick_size, exchange, holidays)
