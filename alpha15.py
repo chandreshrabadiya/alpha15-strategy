@@ -85,7 +85,7 @@ def get_last_trading_day(current_date, holidays=None):
     """Returns the most recent trading day (Monday to Friday) before the given date."""
     if holidays is None:
         holidays = []
-    
+
     last_day = current_date - timedelta(days=1)
     while last_day.weekday() >= 5 or last_day.strftime('%Y-%m-%d') in holidays:
         last_day -= timedelta(days=1)
@@ -116,45 +116,44 @@ def calculate_atr(symbol, exchange="NFO"):
     ist = pytz.timezone('Asia/Kolkata')
     today = datetime.now(ist).date()
     from_date = today - timedelta(days=90)
-    
+
     try:
-        # OpenAlgo history API
-        hist_response = client.history(
+        # OpenAlgo history API returns DataFrame directly
+        df = client.history(
             symbol=symbol,
             exchange=exchange,
             interval="D",  # Daily interval
             start_date=from_date.strftime('%Y-%m-%d'),
             end_date=today.strftime('%Y-%m-%d')
         )
-        
-        if hist_response.get('status') == 'success' and hist_response.get('data'):
-            df = pd.DataFrame(hist_response['data'])
-            
+
+        # Check if we got a DataFrame (success) or dict (error)
+        if isinstance(df, pd.DataFrame) and not df.empty:
             # Ensure proper column names
             df.columns = [c.lower() for c in df.columns]
-            
+
             if len(df) < 15:
                 logger.error(f"Not enough data for ATR calculation for {symbol}")
                 return None
-            
+
             df['H-L'] = df['high'] - df['low']
             df['H-PC'] = abs(df['high'] - df['close'].shift(1))
             df['L-PC'] = abs(df['low'] - df['close'].shift(1))
             df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
-            
+
             # Calculate ATR using Wilder's smoothing
             atr = [df['TR'].iloc[:14].mean()]
             for i in range(14, len(df)):
                 atr.append((atr[-1] * (14 - 1) + df['TR'].iloc[i]) / 14)
             df['ATR'] = pd.Series(atr, index=df.index[13:])
-            
+
             atr_value = df['ATR'].iloc[-1]
             logger.info(f"ATR for {symbol}: {atr_value:.2f}")
             return atr_value
         else:
-            logger.error(f"Failed to fetch history for ATR: {hist_response}")
+            logger.error(f"Failed to fetch history for ATR: {df}")
             return None
-            
+
     except Exception as e:
         logger.error(f"Error calculating ATR for {symbol}: {e}")
         return None
@@ -165,60 +164,58 @@ def calculate_poc(symbol, tick_size, exchange="NFO", holidays=None):
     ist = pytz.timezone('Asia/Kolkata')
     today = datetime.now(ist).date()
     yesterday = get_last_trading_day(today, holidays)
-    
+
     try:
-        # Fetch 15-min candles from previous trading day
-        hist_response = client.history(
+        # OpenAlgo history API returns DataFrame directly
+        df = client.history(
             symbol=symbol,
             exchange=exchange,
             interval="15m",
             start_date=yesterday.strftime('%Y-%m-%d'),
             end_date=yesterday.strftime('%Y-%m-%d')
         )
-        
-        if hist_response.get('status') == 'success' and hist_response.get('data'):
-            df = pd.DataFrame(hist_response['data'])
+
+        # Check if we got a DataFrame (success) or dict (error)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            # Ensure proper column names
             df.columns = [c.lower() for c in df.columns]
-            
-            if df.empty:
-                logger.error(f"No 15-min candle data for POC calculation for {symbol}")
-                return None
-            
+
             # Build TPO Market Profile
             tick_size_adj = tick_size * 0.05
             min_price = np.floor(df['low'].min() / tick_size_adj) * tick_size_adj
             max_price = np.ceil(df['high'].max() / tick_size_adj) * tick_size_adj
             price_bins = np.arange(min_price, max_price + tick_size_adj, tick_size_adj)
-            
+
             import string
             letters = list(string.ascii_uppercase) + list(string.ascii_lowercase)
             market_profile = {price: "" for price in price_bins}
             tpo_count = {price: 0 for price in price_bins}
-            
+
             for i, row in df.iterrows():
-                letter = letters[i] if i < len(letters) else '?'
+                idx = list(df.index).index(i)
+                letter = letters[idx] if idx < len(letters) else '?'
                 for price in price_bins:
                     price_range_low = price
                     price_range_high = price + tick_size_adj
                     if row['low'] <= price_range_high and row['high'] >= price_range_low:
                         market_profile[price] += letter
                         tpo_count[price] += 1
-            
+
             profile_df = pd.DataFrame(list(market_profile.items()), columns=['Price', 'TPO'])
             profile_df['TPO_count'] = profile_df['Price'].map(tpo_count)
             profile_df = profile_df[profile_df['TPO'] != ""]
-            
+
             if profile_df.empty:
                 logger.error(f"No valid TPO profile for {symbol}")
                 return None
-            
+
             poc = profile_df.loc[profile_df['TPO_count'].idxmax(), 'Price']
             logger.info(f"POC for {symbol}: {poc:.2f}")
             return poc
         else:
-            logger.error(f"Failed to fetch history for POC: {hist_response}")
+            logger.error(f"Failed to fetch history for POC: {df}")
             return None
-            
+
     except Exception as e:
         logger.error(f"Error calculating POC for {symbol}: {e}")
         return None
@@ -229,29 +226,30 @@ def get_15min_candles(symbol, exchange="NFO"):
     ist = pytz.timezone('Asia/Kolkata')
     today = datetime.now(ist).date()
     current_time = datetime.now(ist)
-    
+
     if current_time.hour < 9 or (current_time.hour == 9 and current_time.minute < 30):
         logger.warning(f"Skipping data fetch for {symbol}: First 15-min candle not yet complete")
         return None
-    
+
     try:
-        hist_response = client.history(
+        # OpenAlgo history API returns DataFrame directly
+        df = client.history(
             symbol=symbol,
             exchange=exchange,
             interval="15m",
             start_date=today.strftime('%Y-%m-%d'),
             end_date=today.strftime('%Y-%m-%d')
         )
-        
-        if hist_response.get('status') == 'success' and hist_response.get('data'):
-            candles = pd.DataFrame(hist_response['data'])
-            candles.columns = [c.lower() for c in candles.columns]
-            logger.info(f"15-min candles for {symbol}: {len(candles)} candles retrieved")
-            return candles
+
+        # Check if we got a DataFrame (success) or dict (error)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            df.columns = [c.lower() for c in df.columns]
+            logger.info(f"15-min candles for {symbol}: {len(df)} candles retrieved")
+            return df
         else:
-            logger.error(f"No 15-min candle data for {symbol}: {hist_response}")
+            logger.error(f"No 15-min candle data for {symbol}: {df}")
             return None
-            
+
     except Exception as e:
         logger.error(f"Error fetching 15-min candles for {symbol}: {e}")
         return None
@@ -261,7 +259,7 @@ def get_ltp(symbol, exchange="NFO"):
     """Get current LTP using OpenAlgo quotes API."""
     try:
         quote_response = client.quotes(symbol=symbol, exchange=exchange)
-        
+
         if quote_response.get('status') == 'success' and quote_response.get('data'):
             ltp = quote_response['data'].get('ltp')
             logger.info(f"LTP for {symbol}: {ltp}")
@@ -269,20 +267,20 @@ def get_ltp(symbol, exchange="NFO"):
         else:
             logger.error(f"Failed to fetch LTP for {symbol}: {quote_response}")
             return None
-            
+
     except Exception as e:
         logger.error(f"Error fetching LTP for {symbol}: {e}")
         return None
 
 
-def check_trading_conditions(symbol, tick_size, expiry_day, exchange="NFO", holidays=None):
+def check_trading_conditions(symbol, tick_size, expiry_day, exchange="NFO", holidays=None, test_mode=False):
     """Check if trading conditions are met for the symbol."""
     ist = pytz.timezone('Asia/Kolkata')
     current_time = datetime.now(ist)
     logger.info(f"Checking trading conditions for {symbol} at {current_time}")
 
-    # Ensure we're in the monitoring window (9:30 AM - 9:45 AM)
-    if not (current_time.hour == 9 and 30 <= current_time.minute <= 45):
+    # Ensure we're in the monitoring window (9:30 AM - 9:45 AM) unless test mode
+    if not test_mode and not (current_time.hour == 9 and 30 <= current_time.minute <= 45):
         logger.info(f"Outside monitoring window for {symbol}")
         return None
 
@@ -360,25 +358,28 @@ def check_trading_conditions(symbol, tick_size, expiry_day, exchange="NFO", holi
     return signal
 
 
-def signal_detection(expiry_day):
+def signal_detection(expiry_day, test_mode=False):
     """Main signal detection loop."""
     ist = pytz.timezone('Asia/Kolkata')
-    
+
+    if test_mode:
+        logger.info("*** TEST MODE ENABLED - Time restrictions disabled ***")
+
     # Fetch holidays from OpenAlgo
     holidays = get_holidays()
-    
+
     # Create symbol data (using default tick_size since OpenAlgo handles this)
     # You can customize tick_size per symbol if needed
     symbol_data = [{"symbol": s, "tick_size": 0.05} for s in symbols]
-    
+
     logger.info(f"Starting signal detection for {len(symbol_data)} symbols")
-    
+
     alerted_symbols = set()
     current_date = datetime.now(ist).date()
 
     while True:
         current_time = datetime.now(ist)
-        
+
         # Reset alerted symbols if it's a new day
         if current_time.date() > current_date:
             logger.info("New trading day detected. Resetting alerted symbols.")
@@ -386,31 +387,32 @@ def signal_detection(expiry_day):
             current_date = current_time.date()
             holidays = get_holidays()  # Refresh holidays
 
-        # Restrict to 9:30 AM - 9:45 AM
-        if current_time.hour > 9 or (current_time.hour == 9 and current_time.minute > 45):
-            logger.info("Monitoring window (9:30 AM - 9:45 AM) ended. Stopping signal detection.")
-            break
-        if current_time.hour < 9 or (current_time.hour == 9 and current_time.minute < 30):
-            logger.info(f"Waiting for 9:30 AM: {current_time}")
-            time.sleep(60)
-            continue
+        # Restrict to 9:30 AM - 9:45 AM (skip in test mode)
+        if not test_mode:
+            if current_time.hour > 9 or (current_time.hour == 9 and current_time.minute > 45):
+                logger.info("Monitoring window (9:30 AM - 9:45 AM) ended. Stopping signal detection.")
+                break
+            if current_time.hour < 9 or (current_time.hour == 9 and current_time.minute < 30):
+                logger.info(f"Waiting for 9:30 AM: {current_time}")
+                time.sleep(60)
+                continue
 
         logger.info(f"Checking signals at {current_time}")
         failed_symbols = []
-        
+
         for item in symbol_data:
             symbol = item['symbol']
             tick_size = item['tick_size']
-            
+
             if symbol in alerted_symbols:
                 logger.info(f"Skipping {symbol}: Already alerted today")
                 continue
-            
+
             logger.info(f"Processing symbol: {symbol}")
             try:
                 signal = check_trading_conditions(
-                    symbol, tick_size, expiry_day, 
-                    exchange="NFO", holidays=holidays
+                    symbol, tick_size, expiry_day,
+                    exchange="NFO", holidays=holidays, test_mode=test_mode
                 )
                 if signal:
                     alerted_symbols.add(symbol)
@@ -426,16 +428,16 @@ def signal_detection(expiry_day):
             for item in failed_symbols:
                 symbol = item['symbol']
                 tick_size = item['tick_size']
-                
+
                 if symbol in alerted_symbols:
                     logger.info(f"Skipping retry for {symbol}: Already alerted today")
                     continue
-                
+
                 logger.info(f"Retrying symbol: {symbol}")
                 try:
                     signal = check_trading_conditions(
                         symbol, tick_size, expiry_day,
-                        exchange="NFO", holidays=holidays
+                        exchange="NFO", holidays=holidays, test_mode=test_mode
                     )
                     if signal:
                         alerted_symbols.add(symbol)
@@ -449,19 +451,23 @@ def signal_detection(expiry_day):
             break
 
         time.sleep(5)  # Check every 5 seconds for responsiveness
-    
+
     logger.info("Signal detection completed.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Alpha15 Strategy - OpenAlgo Edition')
     parser.add_argument('--expiry-day', type=int, required=True,
-                        help='Expiry day of current month (e.g., 31 for 31JUL25)')
+                        help='Expiry day of current month (e.g., 27 for 27JAN26)')
+    parser.add_argument('--test-mode', action='store_true',
+                        help='Run without time restrictions (for testing)')
     args = parser.parse_args()
-    
+
     try:
         logger.info(f"Starting Alpha15 with expiry day: {args.expiry_day}")
-        signal_detection(args.expiry_day)
+        if args.test_mode:
+            logger.warning("TEST MODE: Time restrictions are disabled!")
+        signal_detection(args.expiry_day, test_mode=args.test_mode)
     except KeyboardInterrupt:
         logger.info("Script terminated by user (KeyboardInterrupt).")
         sys.exit(0)
