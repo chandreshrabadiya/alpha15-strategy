@@ -1,0 +1,16 @@
+# Virtual environment
+venv/
+
+# Logs
+*.log
+
+# Credentials (sensitive)
+credentials.txt
+
+# Generated files
+masterlist.csv
+futures_masterlist.csv
+
+# Python cache
+__pycache__/
+*.pyc
